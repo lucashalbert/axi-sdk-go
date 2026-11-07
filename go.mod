@@ -6,3 +6,5 @@ require (
 	github.com/toon-format/toon-go v1.0.1
 	go.yaml.in/yaml/v3 v3.0.6
 )
+
+require golang.org/x/mod v0.42.0 // indirect

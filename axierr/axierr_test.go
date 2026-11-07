@@ -92,7 +92,7 @@ func TestRenderOmitsEmptyFields(t *testing.T) {
 }
 
 func TestRenderNeverLeaksSecrets(t *testing.T) {
-	const secret = "s3kr1t-value-123" //nolint:gosec // test fixture, not a credential
+	const secret = "s3kr1t-value-123"
 	defer redact.Register(secret)()
 
 	cause := fmt.Errorf("auth failed for %s with token=abcdef and Bearer abc123def456", secret)
