@@ -6,11 +6,10 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -94,9 +93,8 @@ func TestConsumerSetupHelpers(t *testing.T) {
 
 func TestConsumerUpdateCheckCacheIsRepoIsolated(t *testing.T) {
 	bin := buildConsumer(t, repoRoot(t))
-	srv := newCheckServer(t)
 	cache := filepath.Join(t.TempDir(), "update-check.json")
-	out, errOut, code := runConsumerWithEnv(t, bin, []string{"AXI_E2E_RELEASE_URL=" + srv.URL}, "check-cache", cache)
+	out, errOut, code := runConsumerWithEnv(t, bin, []string{"AXI_E2E_RELEASE_FIXTURE=" + checkFixture(t)}, "check-cache", cache)
 	if code != 0 || errOut != "" || strings.TrimSpace(out) != "latest= newer=false" {
 		t.Fatalf("check-cache: code=%d out=%q err=%q", code, out, errOut)
 	}
@@ -114,7 +112,7 @@ func TestConsumerSelfUpdateRefusesUnsafeReleases(t *testing.T) {
 		checksumName: "checksums.txt",
 		checksums:    strings.Repeat("0", 64) + "  " + archiveName + "\n",
 	})
-	_, errOut, code := runConsumerWithEnv(t, bin, []string{"AXI_E2E_RELEASE_URL=" + mismatch.URL}, "self-update")
+	_, errOut, code := runConsumerWithEnv(t, bin, []string{"AXI_E2E_RELEASE_FIXTURE=" + mismatch}, "self-update")
 	if code != 1 || !strings.Contains(errOut, "checksum mismatch") {
 		t.Fatalf("checksum mismatch: code=%d err=%q", code, errOut)
 	}
@@ -126,7 +124,7 @@ func TestConsumerSelfUpdateRefusesUnsafeReleases(t *testing.T) {
 		checksumName: "consumer_checksums.txt",
 		checksums:    sha256Hex(archiveBytes) + "  " + archiveName + "\n",
 	})
-	_, errOut, code = runConsumerWithEnv(t, bin, []string{"AXI_E2E_RELEASE_URL=" + aliasOnly.URL}, "self-update")
+	_, errOut, code = runConsumerWithEnv(t, bin, []string{"AXI_E2E_RELEASE_FIXTURE=" + aliasOnly}, "self-update")
 	if code != 1 || !strings.Contains(errOut, "checksums.txt") {
 		t.Fatalf("checksum alias: code=%d err=%q", code, errOut)
 	}
@@ -235,41 +233,38 @@ type releaseFixture struct {
 	checksums    string
 }
 
-func newReleaseServer(t *testing.T, f releaseFixture) *httptest.Server {
-	t.Helper()
-	mux := http.NewServeMux()
-	var srv *httptest.Server
-	mux.HandleFunc("/repos/o/tool/releases/latest", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = fmt.Fprintf(w, `{"tag_name":"v0.2.0","assets":[{"name":%q,"browser_download_url":%q},{"name":%q,"browser_download_url":%q}]}`,
-			f.archiveName, srv.URL+"/dl/"+f.archiveName, f.checksumName, srv.URL+"/dl/"+f.checksumName)
-	})
-	mux.HandleFunc("/dl/", func(w http.ResponseWriter, r *http.Request) {
-		switch filepath.Base(r.URL.Path) {
-		case f.archiveName:
-			_, _ = w.Write(f.archive)
-		case f.checksumName:
-			_, _ = w.Write([]byte(f.checksums))
-		default:
-			http.NotFound(w, r)
-		}
-	})
-	srv = httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	return srv
+type fixtureResponse struct {
+	Status int
+	Body   string
+	Body64 string
 }
 
-func newCheckServer(t *testing.T) *httptest.Server {
+func newReleaseServer(t *testing.T, f releaseFixture) string {
 	t.Helper()
-	mux := http.NewServeMux()
-	mux.HandleFunc("/repos/old/tool/releases/latest", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = fmt.Fprint(w, `{"tag_name":"v9.9.9","assets":[]}`)
+	return fixtureEnv(t, map[string]fixtureResponse{
+		"/repos/o/tool/releases/latest": {
+			Status: 200,
+			Body: fmt.Sprintf(`{"tag_name":"v0.2.0","assets":[{"name":%q,"browser_download_url":%q},{"name":%q,"browser_download_url":%q}]}`,
+				f.archiveName, "https://fixtures.test/dl/"+f.archiveName, f.checksumName, "https://fixtures.test/dl/"+f.checksumName),
+		},
+		"/dl/" + f.archiveName:  {Status: 200, Body64: base64.StdEncoding.EncodeToString(f.archive)},
+		"/dl/" + f.checksumName: {Status: 200, Body: f.checksums},
 	})
-	mux.HandleFunc("/repos/new/tool/releases/latest", func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, "offline", http.StatusInternalServerError)
+}
+
+func checkFixture(t *testing.T) string {
+	t.Helper()
+	return fixtureEnv(t, map[string]fixtureResponse{
+		"/repos/old/tool/releases/latest": {Status: 200, Body: `{"tag_name":"v9.9.9","assets":[]}`},
+		"/repos/new/tool/releases/latest": {Status: 500, Body: "offline\n"},
 	})
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	return srv
+}
+
+func fixtureEnv(t *testing.T, routes map[string]fixtureResponse) string {
+	t.Helper()
+	b, err := json.Marshal(routes)
+	must(t, err)
+	return string(b)
 }
 
 func archiveForRuntime(t *testing.T, binary string, body []byte) (string, []byte) {
@@ -340,9 +335,13 @@ func must(t *testing.T, err error) {
 const consumerMain = `package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -400,15 +399,10 @@ func (module) Register(root *cobra.Command) {
 		Use:  "check-cache CACHE",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			base := os.Getenv("AXI_E2E_RELEASE_URL")
-			if base == "" {
-				return errors.New("AXI_E2E_RELEASE_URL is required")
-			}
-			u, err := url.Parse(base)
+			client, err := releaseClient()
 			if err != nil {
 				return err
 			}
-			client := &http.Client{Transport: rewriteTransport{target: u}}
 			if _, _, err := update.Check(cmd.Context(), update.CheckConfig{
 				Repo: "old/tool", Current: "0.1.0", CacheFile: args[0], TTL: time.Hour, Client: client,
 			}); err != nil {
@@ -433,21 +427,72 @@ func (module) Register(root *cobra.Command) {
 		Use:  "self-update",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			base := os.Getenv("AXI_E2E_RELEASE_URL")
-			if base == "" {
-				return errors.New("AXI_E2E_RELEASE_URL is required")
-			}
-			u, err := url.Parse(base)
+			client, err := releaseClient()
 			if err != nil {
 				return err
 			}
 			_, _, err = update.Update(cmd.Context(), update.InstallConfig{
 				Repo: "o/tool", Binary: "consumer", Current: info.Version,
-				Client: &http.Client{Transport: rewriteTransport{target: u}},
+				Client: client,
 			})
 			return err
 		},
 	})
+}
+
+func releaseClient() (*http.Client, error) {
+	if raw := os.Getenv("AXI_E2E_RELEASE_FIXTURE"); raw != "" {
+		routes := map[string]fixtureResponse{}
+		if err := json.Unmarshal([]byte(raw), &routes); err != nil {
+			return nil, err
+		}
+		return &http.Client{Transport: fixtureTransport{routes: routes}}, nil
+	}
+	base := os.Getenv("AXI_E2E_RELEASE_URL")
+	if base == "" {
+		return nil, errors.New("AXI_E2E_RELEASE_URL or AXI_E2E_RELEASE_FIXTURE is required")
+	}
+	u, err := url.Parse(base)
+	if err != nil {
+		return nil, err
+	}
+	return &http.Client{Transport: rewriteTransport{target: u}}, nil
+}
+
+type fixtureResponse struct {
+	Status int
+	Body   string
+	Body64 string
+}
+
+type fixtureTransport struct {
+	routes map[string]fixtureResponse
+}
+
+func (f fixtureTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	fr, ok := f.routes[req.URL.Path]
+	if !ok {
+		fr = fixtureResponse{Status: http.StatusNotFound, Body: "not found\n"}
+	}
+	status := fr.Status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	body := []byte(fr.Body)
+	if fr.Body64 != "" {
+		decoded, err := base64.StdEncoding.DecodeString(fr.Body64)
+		if err != nil {
+			return nil, err
+		}
+		body = decoded
+	}
+	return &http.Response{
+		StatusCode: status,
+		Status:     fmt.Sprintf("%d %s", status, http.StatusText(status)),
+		Body:       io.NopCloser(bytes.NewReader(body)),
+		Header:     make(http.Header),
+		Request:    req,
+	}, nil
 }
 
 type rewriteTransport struct {
