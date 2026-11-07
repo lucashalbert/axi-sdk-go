@@ -14,6 +14,20 @@ It holds the parts every AXI tool shares, so a tool only supplies its own domain
 The SDK has no Kubernetes dependency.
 CI fails if any package imports `k8s.io/*`.
 
+## Usage
+
+```go
+func main() {
+	info := update.Info{Version: version, Commit: commit, Date: date} // set with -ldflags
+	os.Exit(cli.Execute(cli.New("my-axi", info, myModule{})))
+}
+```
+
+`cli.New` adds `--json` and `--yaml` persistent flags, `version`, `update` and a once-a-day update notice on stderr.
+The release repository defaults to the binary's `github.com/owner/name` module path, override it with `cli.Repo`.
+`MY_AXI_NO_UPDATE_CHECK=1` turns the notice off, and `cli.EnvPrefix` changes the prefix.
+`update` expects GoReleaser-style archives (`name_version_os_arch.tar.gz`, `.zip` on Windows) plus `checksums.txt`.
+
 ## Install
 
 ```sh
