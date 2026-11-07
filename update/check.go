@@ -55,7 +55,11 @@ func Check(ctx context.Context, c CheckConfig) (latest string, newer bool, err e
 	if err != nil {
 		if ctx.Err() == nil {
 			prev, _ := readCache(c.CacheFile)
-			writeCache(c.CacheFile, cacheEntry{Repo: c.Repo, Latest: prev.Latest, CheckedAt: time.Now()})
+			latest := ""
+			if prev.Repo == c.Repo {
+				latest = prev.Latest
+			}
+			writeCache(c.CacheFile, cacheEntry{Repo: c.Repo, Latest: latest, CheckedAt: time.Now()})
 		}
 		return "", false, err
 	}

@@ -111,6 +111,17 @@ func TestUpdateNoChecksumsAssetFailsClosed(t *testing.T) {
 	assertUntouched(t, target)
 }
 
+func TestUpdateRejectsChecksumsAlias(t *testing.T) {
+	_, target, c := installFixture(t)
+	c.Client = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return jsonResponse(`{"tag_name":"v0.2.0","assets":[{"name":"` + archiveName + `","browser_download_url":"http://x/a"},{"name":"tool_checksums.txt","browser_download_url":"http://x/s"}]}`), nil
+	})}
+	if _, _, err := update(context.Background(), c, target, "linux", "amd64"); err == nil {
+		t.Fatal("want error")
+	}
+	assertUntouched(t, target)
+}
+
 func TestUpdateCorruptArchiveWithMatchingChecksum(t *testing.T) {
 	f, target, c := installFixture(t)
 	bad := []byte("this is not a gzip stream")
@@ -206,10 +217,15 @@ func TestPickArchive(t *testing.T) {
 	if _, err := pickArchive(assets, "tool", "plan9", "amd64"); err == nil {
 		t.Error("want error for unsupported platform")
 	}
+	if _, err := pickArchive([]asset{{Name: "tool_0.2.0_Linux_x86.tar.gz"}}, "tool", "linux", "386"); err == nil {
+		t.Error("want error for unsupported architecture")
+	}
 	// The running platform resolves for lower-case names too.
-	own := []asset{{Name: "tool_1.0.0_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz"}}
-	if _, err := pickArchive(own, "tool", runtime.GOOS, runtime.GOARCH); err != nil {
-		t.Error(err)
+	if supportedOS[runtime.GOOS] && archAliases[runtime.GOARCH] != nil {
+		own := []asset{{Name: "tool_1.0.0_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz"}}
+		if _, err := pickArchive(own, "tool", runtime.GOOS, runtime.GOARCH); err != nil {
+			t.Error(err)
+		}
 	}
 }
 

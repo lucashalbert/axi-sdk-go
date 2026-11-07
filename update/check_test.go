@@ -130,6 +130,20 @@ func TestCheckFailureKeepsPreviousLatest(t *testing.T) {
 	}
 }
 
+func TestCheckFailureDoesNotReuseDifferentRepoLatest(t *testing.T) {
+	f := newFakeGitHub(t, "v0.2.0", nil)
+	c := cfg(f, t.TempDir(), "0.1.0")
+	c.Repo = "new/tool"
+	writeCache(c.CacheFile, cacheEntry{Repo: "old/tool", Latest: "v9.9.9", CheckedAt: time.Now().Add(-2 * time.Hour)})
+	if _, _, err := Check(context.Background(), c); err == nil {
+		t.Fatal("want error")
+	}
+	latest, newer, err := Check(context.Background(), c)
+	if err != nil || newer || latest != "" {
+		t.Errorf("after failure: %q %v %v", latest, newer, err)
+	}
+}
+
 func TestCheckWithoutCacheFile(t *testing.T) {
 	f := newFakeGitHub(t, "v0.2.0", nil)
 	c := cfg(f, t.TempDir(), "0.1.0")

@@ -26,7 +26,7 @@ func main() {
 `cli.New` adds `--json` and `--yaml` persistent flags, `version`, `update` and a once-a-day update notice on stderr.
 The release repository defaults to the binary's `github.com/owner/name` module path, override it with `cli.Repo`.
 `MY_AXI_NO_UPDATE_CHECK=1` turns the notice off, and `cli.EnvPrefix` changes the prefix.
-`update` expects GoReleaser-style archives (`name_version_os_arch.tar.gz`, `.zip` on Windows) plus `checksums.txt`.
+`update` expects GoReleaser-style archives (`name_version_os_arch.tar.gz`, `.zip` on Windows) for Linux, macOS and Windows on amd64 or arm64, plus `checksums.txt`.
 
 ## Install
 

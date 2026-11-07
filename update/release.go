@@ -91,7 +91,12 @@ func isNewer(latest, current string) bool {
 var archAliases = map[string][]string{
 	"amd64": {"amd64", "x86_64"},
 	"arm64": {"arm64", "aarch64"},
-	"386":   {"386", "i386", "x86"},
+}
+
+var supportedOS = map[string]bool{
+	"darwin":  true,
+	"linux":   true,
+	"windows": true,
 }
 
 // pickArchive selects the archive for goos/goarch. Names are matched on
@@ -99,9 +104,9 @@ var archAliases = map[string][]string{
 // "tool_1.2.3_Linux_x86_64.tar.gz" and "tool_1.2.3_linux_amd64.tar.gz" both
 // work) and must start with the binary name.
 func pickArchive(assets []asset, binary, goos, goarch string) (asset, error) {
-	archs := archAliases[goarch]
-	if archs == nil {
-		archs = []string{goarch}
+	archs, ok := archAliases[goarch]
+	if !ok || !supportedOS[goos] {
+		return asset{}, fmt.Errorf("no release archive for %s/%s", goos, goarch)
 	}
 	for _, a := range assets {
 		name := strings.ToLower(a.Name)
@@ -129,11 +134,10 @@ func pickArchive(assets []asset, binary, goos, goarch string) (asset, error) {
 	return asset{}, fmt.Errorf("no release archive for %s/%s", goos, goarch)
 }
 
-// pickChecksums finds the checksums asset ("checksums.txt" or "*_checksums.txt").
+// pickChecksums finds the checksums asset.
 func pickChecksums(assets []asset) (asset, error) {
 	for _, a := range assets {
-		n := strings.ToLower(a.Name)
-		if n == "checksums.txt" || strings.HasSuffix(n, "_checksums.txt") {
+		if a.Name == "checksums.txt" {
 			return a, nil
 		}
 	}
