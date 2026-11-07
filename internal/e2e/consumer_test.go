@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -132,7 +133,7 @@ func TestConsumerSelfUpdateRefusesUnsafeReleases(t *testing.T) {
 }
 
 func TestDependencyGraphHasNoKubernetesPackages(t *testing.T) {
-	cmd := exec.Command("go", "list", "-deps", "-test", "./...")
+	cmd := exec.CommandContext(t.Context(), "go", "list", "-deps", "-test", "./...")
 	cmd.Dir = repoRoot(t)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -165,7 +166,7 @@ replace github.com/lucashalbert/axi-sdk-go => %s
 
 func runGo(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("go", args...)
+	cmd := exec.CommandContext(t.Context(), "go", args...)
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("go %s failed: %v\n%s", strings.Join(args, " "), err, out)
@@ -179,7 +180,7 @@ func runConsumer(t *testing.T, bin string, args ...string) (string, string, int)
 
 func runConsumerWithEnv(t *testing.T, bin string, env []string, args ...string) (string, string, int) {
 	t.Helper()
-	cmd := exec.Command(bin, args...)
+	cmd := exec.CommandContext(t.Context(), bin, args...)
 	cmd.Env = append(os.Environ(), append([]string{"CONSUMER_NO_UPDATE_CHECK=1"}, env...)...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -187,7 +188,8 @@ func runConsumerWithEnv(t *testing.T, bin string, env []string, args ...string) 
 	err := cmd.Run()
 	code := 0
 	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
 			code = ee.ExitCode()
 		} else {
 			t.Fatalf("run consumer %v: %v", args, err)
