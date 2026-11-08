@@ -95,6 +95,20 @@ func TestEchoEndToEnd(t *testing.T) {
 		}
 	})
 
+	t.Run("set treats null state as empty", func(t *testing.T) {
+		nullFile := filepath.Join(t.TempDir(), "state.json")
+		if err := os.WriteFile(nullFile, []byte("null\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		r := runEcho(t, bin, nullFile, "set", "from-null", "ok", "--json")
+		if r.code != 0 || !strings.Contains(r.out, `"changes":["create from-null = ok"]`) {
+			t.Fatalf("%+v", r)
+		}
+		if got := readState(t, nullFile)["from-null"]; got != "ok" {
+			t.Fatalf("state = %q", got)
+		}
+	})
+
 	t.Run("set with the same value is a no-op", func(t *testing.T) {
 		r := runEcho(t, bin, file, "set", "greeting", "hello", "--yaml")
 		if r.code != 0 || !strings.Contains(r.out, "noop: true") || !strings.Contains(r.out, "changes: []") {

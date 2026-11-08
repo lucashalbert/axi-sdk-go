@@ -143,6 +143,9 @@ func load(cmd *cobra.Command) (map[string]string, error) {
 	if err != nil {
 		return nil, axierr.Runtime("load", path(cmd), err, "fix or remove the state file")
 	}
+	if state == nil {
+		state = map[string]string{}
+	}
 	return state, nil
 }
 
