@@ -15,7 +15,7 @@ Exported API, kept small:
 - `Mode`: `Apply` or `DryRun`.
 - `Authorizer`: holds the caller-supplied confirm token and the flag name used in hints.
   `Authorize(Plan, Mode)` is the only policy decision point.
-- `Options` and `Run`: render the plan, authorize, then call the consumer's callbacks.
+- `Options` and `Run`: authorize the plan, render it, then call the consumer's callbacks.
 
 Contracts, from the design and PRD:
 
@@ -37,7 +37,7 @@ A package `main` in the SDK module, built with `cli.New`.
 It uses only dependencies the SDK already has, so the dependency graph and the no-k8s check cover it with no extra CI wiring.
 It is not a release artifact: the repository has no release build for binaries.
 
-- `echo say <text>`: read command.
+- `echo get <key>`: read command.
 - `echo set <key> <value>` and `echo delete <key>`: mutating commands backed by a JSON file, using `mutate`.
 
 End-to-end tests build the binary and run it, covering output formats, dry-run, token errors and redaction.
