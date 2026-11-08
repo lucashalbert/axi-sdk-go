@@ -65,6 +65,9 @@ func (a Authorizer) Authorize(p Plan, mode Mode) error {
 		return axierr.Usage(orDefault(p.Operation, "mutate"), "plan needs an operation and a target",
 			"set both Operation and Target on the plan")
 	}
+	if len(p.Changes) == 0 {
+		return nil
+	}
 	if !p.Destructive || mode == DryRun {
 		return nil
 	}

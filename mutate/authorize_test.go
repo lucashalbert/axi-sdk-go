@@ -9,7 +9,7 @@ import (
 )
 
 func destructive() Plan {
-	return Plan{Operation: "delete", Target: "deployment/web", Destructive: true}
+	return Plan{Operation: "delete", Target: "deployment/web", Destructive: true, Changes: []string{"delete deployment/web"}}
 }
 
 func TestAuthorizeDestructive(t *testing.T) {
@@ -25,10 +25,15 @@ func TestAuthorizeDestructive(t *testing.T) {
 		{"case differs", "Deployment/web", Apply, "does not match"},
 		{"whitespace differs", " deployment/web", Apply, "does not match"},
 		{"dry run needs no token", "", DryRun, ""},
+		{"no changes needs no token", "", Apply, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := Authorizer{Confirm: tc.confirm}.Authorize(destructive(), tc.mode)
+			p := destructive()
+			if strings.Contains(tc.name, "no changes") {
+				p.Changes = nil
+			}
+			err := Authorizer{Confirm: tc.confirm}.Authorize(p, tc.mode)
 			if tc.wantErr == "" {
 				if err != nil {
 					t.Fatalf("Authorize = %v, want nil", err)
@@ -84,7 +89,12 @@ func TestAuthorizeRejectsInvalidPlan(t *testing.T) {
 }
 
 func TestAuthorizeMasksSecretsInError(t *testing.T) {
-	p := Plan{Operation: "delete", Target: "secret/token=hunter2hunter2", Destructive: true}
+	p := Plan{
+		Operation:   "delete",
+		Target:      "secret/token=hunter2hunter2",
+		Destructive: true,
+		Changes:     []string{"delete secret"},
+	}
 	err := Authorizer{Confirm: "nope"}.Authorize(p, Apply)
 	if err == nil || strings.Contains(err.Error(), "hunter2") {
 		t.Fatalf("error leaks secret: %v", err)

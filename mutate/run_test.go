@@ -172,6 +172,25 @@ func TestRunNoChangesIsNoOp(t *testing.T) {
 	}
 }
 
+func TestRunDestructiveNoChangesNeedsNoToken(t *testing.T) {
+	for _, m := range []Mode{Apply, DryRun} {
+		var out bytes.Buffer
+		c := &calls{}
+		p := destructive()
+		p.Changes = nil
+		if err := Run(t.Context(), c.opts(p, Authorizer{}, m, &out)); err != nil {
+			t.Fatalf("mode %v: %v", m, err)
+		}
+		d := parse(t, &out)
+		if !d.Plan.NoOp || !d.Plan.Destructive || d.Plan.Confirm != "deployment/web" {
+			t.Fatalf("mode %v: plan=%+v", m, d.Plan)
+		}
+		if c.apply != 0 || c.validate != 0 {
+			t.Fatalf("mode %v: calls=%+v", m, c)
+		}
+	}
+}
+
 func TestRunApplyFailureKeepsAxiError(t *testing.T) {
 	var out bytes.Buffer
 	c := &calls{}
