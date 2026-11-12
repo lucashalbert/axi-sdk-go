@@ -1,9 +1,6 @@
 package cli
 
 import (
-	"errors"
-	"fmt"
-
 	"github.com/spf13/cobra"
 
 	"github.com/lucashalbert/axi-sdk-go/axierr"
@@ -17,15 +14,17 @@ type versionOut struct {
 	Date    string `json:"date"`
 }
 
+const (
+	versionAnnotation      = "axi-sdk-go/cli/version"
+	versionShortAnnotation = "axi-sdk-go/cli/version-short"
+)
+
 func orDefault(v, def string) string {
 	if v == "" {
 		return def
 	}
 	return v
 }
-
-// errVersionPrinted stops the root command after a version flag was answered.
-var errVersionPrinted = errors.New("version printed")
 
 // addVersionFlags gives the root --version and -V, plus -v when no module has
 // already claimed that root shorthand. They are local to the root, so
@@ -34,40 +33,25 @@ var errVersionPrinted = errors.New("version printed")
 func (s *settings) addVersionFlags(root *cobra.Command) {
 	f := root.Flags()
 	pf := root.PersistentFlags()
-	if f.Lookup("version") != nil || pf.Lookup("version") != nil {
-		panic("cli: root flag --version is reserved")
-	}
-	if f.Lookup("V") != nil || pf.Lookup("V") != nil ||
-		f.ShorthandLookup("V") != nil || pf.ShorthandLookup("V") != nil {
-		panic("cli: root flag -V is reserved")
-	}
 	short := func(c string) string {
 		if f.ShorthandLookup(c) != nil || pf.ShorthandLookup(c) != nil {
 			return ""
 		}
 		return c
 	}
-	f.BoolP("version", short("v"), false, "print the version and exit")
+	versionShort := short("v")
+	root.Annotations[versionShortAnnotation] = "false"
+	if versionShort == "v" {
+		root.Annotations[versionShortAnnotation] = "true"
+	}
+	if f.Lookup("version") == nil && pf.Lookup("version") == nil {
+		f.BoolP("version", versionShort, false, "print the version and exit")
+	}
 	// ponytail: pflag shorthands need a flag name, so -V is a hidden "--V" too.
-	f.BoolP("V", "V", false, "print the version and exit")
-	_ = f.MarkHidden("V")
-}
-
-// versionFastPath prints the bare version when a root version flag is set.
-func (s *settings) versionFastPath(cmd *cobra.Command, _ []string) error {
-	if cmd.HasParent() {
-		return nil
+	if f.Lookup("V") == nil && pf.Lookup("V") == nil && short("V") != "" {
+		f.BoolP("V", "V", false, "print the version and exit")
+		_ = f.MarkHidden("V")
 	}
-	for _, n := range []string{"version", "V"} {
-		if v, err := cmd.Flags().GetBool(n); err == nil && v {
-			_, err := fmt.Fprintln(cmd.OutOrStdout(), orDefault(s.info.Version, "dev"))
-			if err != nil {
-				return err
-			}
-			return errVersionPrinted
-		}
-	}
-	return nil
 }
 
 func (s *settings) versionCmd() *cobra.Command {

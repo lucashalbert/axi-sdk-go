@@ -11,8 +11,10 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -98,10 +100,8 @@ func New(name string, info update.Info, mods ...Module) *cobra.Command {
 		return axierr.Usage(c.CommandPath(), err.Error(), "run '"+c.CommandPath()+" --help' for usage")
 	})
 	root.PersistentPostRun = s.notice
-	// The root needs a Run for PersistentPreRunE to fire on bare flags; help
-	// is what a non-runnable root printed already.
+	// Help is what a non-runnable root printed already.
 	root.Run = func(c *cobra.Command, _ []string) { _ = c.Help() }
-	root.PersistentPreRunE = s.versionFastPath
 
 	root.AddCommand(s.versionCmd(), s.updateCmd())
 	for _, m := range mods {
@@ -109,6 +109,10 @@ func New(name string, info update.Info, mods ...Module) *cobra.Command {
 			m.Register(root)
 		}
 	}
+	if root.Annotations == nil {
+		root.Annotations = map[string]string{}
+	}
+	root.Annotations[versionAnnotation] = orDefault(s.info.Version, "dev")
 	s.addVersionFlags(root)
 	return root
 }
@@ -131,8 +135,12 @@ func Format(cmd *cobra.Command) (output.Format, error) {
 // Nothing is written to stderr for errors.
 // Cobra's own unknown-command and flag errors are usage errors.
 func Execute(root *cobra.Command) int {
+	if shouldPrintBareVersion(root, commandArgs(root)) {
+		_, _ = fmt.Fprintln(root.OutOrStdout(), root.Annotations[versionAnnotation])
+		return axierr.CodeOK
+	}
 	err := root.Execute()
-	if err == nil || errors.Is(err, errVersionPrinted) {
+	if err == nil {
 		return axierr.CodeOK
 	}
 	var ae *axierr.Error
@@ -152,6 +160,35 @@ func Execute(root *cobra.Command) int {
 	}
 	ae.Render(root.OutOrStdout(), f)
 	return axierr.ExitCode(ae)
+}
+
+func shouldPrintBareVersion(root *cobra.Command, args []string) bool {
+	if len(args) != 1 || root.Annotations[versionAnnotation] == "" {
+		return false
+	}
+	switch args[0] {
+	case "--version", "-V":
+		return true
+	case "-v":
+		return root.Annotations[versionShortAnnotation] == "true"
+	default:
+		return false
+	}
+}
+
+func commandArgs(root *cobra.Command) []string {
+	v := reflect.ValueOf(root).Elem().FieldByName("args")
+	if v.IsValid() && !v.IsNil() {
+		args := make([]string, v.Len())
+		for i := range args {
+			args[i] = v.Index(i).String()
+		}
+		return args
+	}
+	if filepath.Base(os.Args[0]) != "cobra.test" {
+		return os.Args[1:]
+	}
+	return nil
 }
 
 func defaultEnvPrefix(name string) string {

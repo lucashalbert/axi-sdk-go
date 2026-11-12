@@ -226,55 +226,67 @@ func TestVersionFlagsDoNotCollide(t *testing.T) {
 	}
 }
 
-func TestVersionFlagsRejectReservedRootFlags(t *testing.T) {
+func TestVersionFastPathIgnoresModuleOverrides(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		mod  Module
-		msg  string
+		flag string
 	}{
 		{
-			name: "local version",
+			name: "module version flag",
 			mod: moduleFunc(func(r *cobra.Command) {
 				r.Flags().Bool("version", false, "")
 			}),
-			msg: "cli: root flag --version is reserved",
+			flag: "--version",
 		},
 		{
-			name: "persistent version",
+			name: "module persistent version flag",
 			mod: moduleFunc(func(r *cobra.Command) {
 				r.PersistentFlags().Bool("version", false, "")
 			}),
-			msg: "cli: root flag --version is reserved",
+			flag: "--version",
 		},
 		{
-			name: "local V shorthand",
+			name: "module V shorthand",
 			mod: moduleFunc(func(r *cobra.Command) {
 				r.Flags().BoolP("verbose", "V", false, "")
 			}),
-			msg: "cli: root flag -V is reserved",
+			flag: "-V",
 		},
 		{
-			name: "persistent V shorthand",
+			name: "module persistent V shorthand",
 			mod: moduleFunc(func(r *cobra.Command) {
 				r.PersistentFlags().BoolP("verbose", "V", false, "")
 			}),
-			msg: "cli: root flag -V is reserved",
+			flag: "-V",
 		},
 		{
-			name: "local hidden V",
+			name: "module hidden V",
 			mod: moduleFunc(func(r *cobra.Command) {
 				r.Flags().Bool("V", false, "")
 			}),
-			msg: "cli: root flag -V is reserved",
+			flag: "-V",
+		},
+		{
+			name: "module hooks",
+			mod: moduleFunc(func(r *cobra.Command) {
+				r.PersistentPreRunE = func(*cobra.Command, []string) error { return nil }
+				r.RunE = func(cmd *cobra.Command, _ []string) error {
+					_, _ = cmd.OutOrStdout().Write([]byte("module\n"))
+					return nil
+				}
+			}),
+			flag: "--version",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			defer func() {
-				if r := recover(); r != tc.msg {
-					t.Fatalf("panic = %v, want %q", r, tc.msg)
-				}
-			}()
-			_ = New("tool-x", info, Repo("o/x"), tc.mod)
+			root := New("tool-x", info, Repo("o/x"), tc.mod)
+			var out bytes.Buffer
+			root.SetOut(&out)
+			root.SetArgs([]string{tc.flag})
+			if Execute(root) != 0 || out.String() != "0.1.0\n" {
+				t.Fatalf("%s out = %q", tc.flag, out.String())
+			}
 		})
 	}
 }
