@@ -45,8 +45,8 @@ func TestConsumerCLIBehavior(t *testing.T) {
 	}
 
 	out, errOut, code = runConsumer(t, bin, "fail", "--json")
-	if code != 1 || out != "" || !strings.Contains(errOut, "[REDACTED]") ||
-		strings.Contains(errOut, "s3cr3t") || strings.Contains(errOut, "topsecret") || strings.Contains(errOut, "supersecret") {
+	if code != 1 || errOut != "" || !strings.Contains(out, "[REDACTED]") ||
+		strings.Contains(out, "s3cr3t") || strings.Contains(out, "topsecret") || strings.Contains(out, "supersecret") {
 		t.Fatalf("redacted error: code=%d out=%q err=%q", code, out, errOut)
 	}
 }
@@ -113,9 +113,9 @@ func TestConsumerSelfUpdateRefusesUnsafeReleases(t *testing.T) {
 		checksumName: "checksums.txt",
 		checksums:    strings.Repeat("0", 64) + "  " + archiveName + "\n",
 	})
-	_, errOut, code := runConsumerWithEnv(t, bin, []string{"AXI_E2E_RELEASE_FIXTURE=" + mismatch}, "self-update")
-	if code != 1 || !strings.Contains(errOut, "checksum mismatch") {
-		t.Fatalf("checksum mismatch: code=%d err=%q", code, errOut)
+	out, errOut, code := runConsumerWithEnv(t, bin, []string{"AXI_E2E_RELEASE_FIXTURE=" + mismatch}, "self-update")
+	if code != 1 || errOut != "" || !strings.Contains(out, "checksum mismatch") {
+		t.Fatalf("checksum mismatch: code=%d out=%q err=%q", code, out, errOut)
 	}
 	assertFileBytes(t, bin, original)
 
@@ -125,9 +125,9 @@ func TestConsumerSelfUpdateRefusesUnsafeReleases(t *testing.T) {
 		checksumName: "consumer_checksums.txt",
 		checksums:    sha256Hex(archiveBytes) + "  " + archiveName + "\n",
 	})
-	_, errOut, code = runConsumerWithEnv(t, bin, []string{"AXI_E2E_RELEASE_FIXTURE=" + aliasOnly}, "self-update")
-	if code != 1 || !strings.Contains(errOut, "checksums.txt") {
-		t.Fatalf("checksum alias: code=%d err=%q", code, errOut)
+	out, errOut, code = runConsumerWithEnv(t, bin, []string{"AXI_E2E_RELEASE_FIXTURE=" + aliasOnly}, "self-update")
+	if code != 1 || errOut != "" || !strings.Contains(out, "checksums.txt") {
+		t.Fatalf("checksum alias: code=%d out=%q err=%q", code, out, errOut)
 	}
 	assertFileBytes(t, bin, original)
 }

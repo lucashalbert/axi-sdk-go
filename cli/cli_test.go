@@ -101,25 +101,112 @@ func TestVersionDefaultsForUnstampedBuild(t *testing.T) {
 }
 
 func TestConflictingFormatFlagsExit2(t *testing.T) {
-	_, errOut, code := run(t, &fakes{}, "version", "--json", "--yaml")
-	if code != 2 || !strings.Contains(errOut, "mutually exclusive") {
-		t.Errorf("code=%d err=%q", code, errOut)
+	out, errOut, code := run(t, &fakes{}, "version", "--json", "--yaml")
+	if code != 2 || !strings.Contains(out, "mutually exclusive") || errOut != "" {
+		t.Errorf("code=%d out=%q err=%q", code, out, errOut)
 	}
 }
 
 func TestUsageErrorsExit2(t *testing.T) {
 	for _, args := range [][]string{{"--nope"}, {"version", "--nope"}, {"nosuchcommand"}, {"version", "extra"}} {
 		out, errOut, code := run(t, &fakes{}, args...)
-		if code != 2 || out != "" || !strings.Contains(errOut, "error:") || !strings.Contains(errOut, "exit: 2") {
+		if code != 2 || errOut != "" || !strings.Contains(out, "error:") || !strings.Contains(out, "exit: 2") {
 			t.Errorf("%v: code=%d out=%q err=%q", args, code, out, errOut)
 		}
 	}
 }
 
 func TestRuntimeErrorExit1AsJSON(t *testing.T) {
-	_, errOut, code := run(t, &fakes{}, "boom", "--json")
-	if code != 1 || errOut != `{"error":{"op":"tool-x","message":"kaboom","exit":1}}`+"\n" {
-		t.Errorf("code=%d err=%q", code, errOut)
+	out, errOut, code := run(t, &fakes{}, "boom", "--json")
+	if code != 1 || errOut != "" || out != `{"error":{"op":"tool-x","message":"kaboom","exit":1}}`+"\n" {
+		t.Errorf("code=%d out=%q err=%q", code, out, errOut)
+	}
+}
+
+func TestErrorsGoToStdoutInEveryFormat(t *testing.T) {
+	out, errOut, code := run(t, &fakes{}, "boom")
+	if code != 1 || errOut != "" || out != "error:\n  op: tool-x\n  message: kaboom\n  exit: 1\n" {
+		t.Errorf("toon: code=%d out=%q err=%q", code, out, errOut)
+	}
+	out, errOut, code = run(t, &fakes{}, "boom", "--yaml")
+	var y map[string]map[string]any
+	if err := yaml.Unmarshal([]byte(out), &y); err != nil || code != 1 || errOut != "" ||
+		y["error"]["message"] != "kaboom" || y["error"]["exit"] != 1 {
+		t.Errorf("yaml: code=%d out=%q err=%q %v", code, out, errOut, err)
+	}
+	out, errOut, code = run(t, &fakes{}, "--json", "version", "--nope")
+	var j map[string]map[string]any
+	if err := json.Unmarshal([]byte(out), &j); err != nil || code != 2 || errOut != "" ||
+		j["error"]["exit"] != float64(2) || j["error"]["hint"] == "" {
+		t.Errorf("json usage: code=%d out=%q err=%q %v", code, out, errOut, err)
+	}
+}
+
+func TestErrorOutputIsRedacted(t *testing.T) {
+	root := New("tool-x", info, Repo("o/x"), moduleFunc(func(r *cobra.Command) {
+		r.AddCommand(&cobra.Command{Use: "leak", RunE: func(*cobra.Command, []string) error {
+			return errors.New("auth failed: password=hunter2hunter2")
+		}})
+	}))
+	var out, errb bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&errb)
+	root.SetArgs([]string{"leak"})
+	if code := Execute(root); code != 1 || strings.Contains(out.String(), "hunter2") || errb.Len() != 0 {
+		t.Errorf("code=%d out=%q err=%q", code, out.String(), errb.String())
+	}
+}
+
+type moduleFunc func(*cobra.Command)
+
+func (f moduleFunc) Register(r *cobra.Command) { f(r) }
+
+func TestVersionFlags(t *testing.T) {
+	for _, flag := range []string{"--version", "-v", "-V"} {
+		out, errOut, code := run(t, &fakes{latest: "0.2.0", newer: true}, flag)
+		if code != 0 || out != "0.1.0\n" {
+			t.Errorf("%s: code=%d out=%q", flag, code, out)
+		}
+		_ = errOut // the update notice may use stderr
+	}
+	root := New("tool-x", update.Info{}, Repo("o/x"))
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetArgs([]string{"-v"})
+	if Execute(root) != 0 || out.String() != "dev\n" {
+		t.Errorf("unstamped out = %q", out.String())
+	}
+}
+
+func TestVersionFlagsDoNotCollide(t *testing.T) {
+	// A subcommand's own -v/-V and the version subcommand are untouched.
+	root := New("tool-x", info, Repo("o/x"), moduleFunc(func(r *cobra.Command) {
+		c := &cobra.Command{Use: "sub", RunE: func(cmd *cobra.Command, _ []string) error {
+			v, _ := cmd.Flags().GetBool("verbose")
+			_, _ = cmd.OutOrStdout().Write([]byte(map[bool]string{true: "verbose\n", false: "quiet\n"}[v]))
+			return nil
+		}}
+		c.Flags().BoolP("verbose", "v", false, "")
+		r.AddCommand(c)
+	}))
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetArgs([]string{"sub", "-v"})
+	if Execute(root) != 0 || out.String() != "verbose\n" {
+		t.Errorf("sub -v out = %q", out.String())
+	}
+	if o, _, code := run(t, &fakes{}, "version"); code != 0 || !strings.HasPrefix(o, "version: 0.1.0") {
+		t.Errorf("version cmd: %d %q", code, o)
+	}
+	// A root that already owns -v keeps it and still gets --version and -V.
+	root = New("tool-x", info, Repo("o/x"), moduleFunc(func(r *cobra.Command) {
+		r.Flags().BoolP("verbose", "v", false, "")
+	}))
+	out.Reset()
+	root.SetOut(&out)
+	root.SetArgs([]string{"-V"})
+	if Execute(root) != 0 || out.String() != "0.1.0\n" {
+		t.Errorf("-V out = %q", out.String())
 	}
 }
 
@@ -255,7 +342,7 @@ func TestUpdateCommand(t *testing.T) {
 func TestUpdateFailureIsStructuredRuntimeError(t *testing.T) {
 	f := &fakes{instErr: errors.New("checksum mismatch for x.tar.gz")}
 	out, errOut, code := run(t, f, "update")
-	if code != 1 || out != "" || !strings.Contains(errOut, "checksum mismatch") || !strings.Contains(errOut, "not changed") {
+	if code != 1 || errOut != "" || !strings.Contains(out, "checksum mismatch") || !strings.Contains(out, "not changed") {
 		t.Errorf("code=%d out=%q err=%q", code, out, errOut)
 	}
 }

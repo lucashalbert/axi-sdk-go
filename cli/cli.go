@@ -1,9 +1,11 @@
 // Package cli composes an AXI command line tool from Modules.
 //
 // New returns a Cobra root command with the shared pieces already wired:
-// persistent --json and --yaml flags, a version command, a checksum-verified
-// update command, and a once-a-day update notice on stderr.
-// Execute runs it and maps any error to a structured message and exit code.
+// persistent --json and --yaml flags, a version command, root --version, -v
+// and -V flags, a checksum-verified update command, and a once-a-day update
+// notice on stderr.
+// Execute runs it, writes any error to stdout as a structured message in the
+// selected format, and returns the exit code.
 package cli
 
 import (
@@ -96,6 +98,10 @@ func New(name string, info update.Info, mods ...Module) *cobra.Command {
 		return axierr.Usage(c.CommandPath(), err.Error(), "run '"+c.CommandPath()+" --help' for usage")
 	})
 	root.PersistentPostRun = s.notice
+	// The root needs a Run for PersistentPreRunE to fire on bare flags; help
+	// is what a non-runnable root printed already.
+	root.Run = func(c *cobra.Command, _ []string) { _ = c.Help() }
+	root.PersistentPreRunE = s.versionFastPath
 
 	root.AddCommand(s.versionCmd(), s.updateCmd())
 	for _, m := range mods {
@@ -103,6 +109,7 @@ func New(name string, info update.Info, mods ...Module) *cobra.Command {
 			m.Register(root)
 		}
 	}
+	s.addVersionFlags(root)
 	return root
 }
 
@@ -118,12 +125,14 @@ func Format(cmd *cobra.Command) (output.Format, error) {
 	return f, nil
 }
 
-// Execute runs root, prints any error to stderr as a structured message in
-// the selected format, and returns the process exit code (0, 1 or 2).
+// Execute runs root, prints any error to stdout as a structured message in
+// the selected format (the same stream and format as normal output, so the
+// agent reads it), and returns the process exit code (0, 1 or 2).
+// Nothing is written to stderr for errors.
 // Cobra's own unknown-command and flag errors are usage errors.
 func Execute(root *cobra.Command) int {
 	err := root.Execute()
-	if err == nil {
+	if err == nil || errors.Is(err, errVersionPrinted) {
 		return axierr.CodeOK
 	}
 	var ae *axierr.Error
@@ -141,7 +150,7 @@ func Execute(root *cobra.Command) int {
 	if perr != nil {
 		f = output.TOON
 	}
-	ae.Render(root.ErrOrStderr(), f)
+	ae.Render(root.OutOrStdout(), f)
 	return axierr.ExitCode(ae)
 }
 

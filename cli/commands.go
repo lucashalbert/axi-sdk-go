@@ -1,6 +1,9 @@
 package cli
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/spf13/cobra"
 
 	"github.com/lucashalbert/axi-sdk-go/axierr"
@@ -19,6 +22,47 @@ func orDefault(v, def string) string {
 		return def
 	}
 	return v
+}
+
+// errVersionPrinted stops the root command after a version flag was answered.
+var errVersionPrinted = errors.New("version printed")
+
+// addVersionFlags gives the root --version, -v and -V. They are local to the
+// root, so subcommands keep their own -v/-V, and a flag a module already
+// defined on the root is left alone.
+func (s *settings) addVersionFlags(root *cobra.Command) {
+	f := root.Flags()
+	short := func(c string) string {
+		if f.ShorthandLookup(c) != nil || root.PersistentFlags().ShorthandLookup(c) != nil {
+			return ""
+		}
+		return c
+	}
+	if f.Lookup("version") == nil && root.PersistentFlags().Lookup("version") == nil {
+		f.BoolP("version", short("v"), false, "print the version and exit")
+	}
+	// ponytail: pflag shorthands need a flag name, so -V is a hidden "--V" too.
+	if f.Lookup("V") == nil && short("V") != "" {
+		f.BoolP("V", "V", false, "print the version and exit")
+		_ = f.MarkHidden("V")
+	}
+}
+
+// versionFastPath prints the bare version when a root version flag is set.
+func (s *settings) versionFastPath(cmd *cobra.Command, _ []string) error {
+	if cmd.HasParent() {
+		return nil
+	}
+	for _, n := range []string{"version", "V"} {
+		if v, err := cmd.Flags().GetBool(n); err == nil && v {
+			_, err := fmt.Fprintln(cmd.OutOrStdout(), orDefault(s.info.Version, "dev"))
+			if err != nil {
+				return err
+			}
+			return errVersionPrinted
+		}
+	}
+	return nil
 }
 
 func (s *settings) versionCmd() *cobra.Command {

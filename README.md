@@ -10,7 +10,7 @@ It holds the parts every AXI tool shares, so a tool only supplies its own domain
 - `update`: version reporting, a cached once-a-day update check and checksum-verified self-update from GitHub Releases.
 - `setup`: installers for an agent skill and a session-start hook.
 - `mutate`: plan, authorize and execute model for commands that change state, with confirm tokens for destructive operations and dry-run.
-- `cli`: command composition on top of Cobra, adding `version`, `update` and the update notice.
+- `cli`: command composition on top of Cobra, adding `version`, `update`, the version flags and the update notice.
 
 The SDK has no Kubernetes dependency.
 CI fails if any package imports `k8s.io/*`.
@@ -24,7 +24,9 @@ func main() {
 }
 ```
 
-`cli.New` adds `--json` and `--yaml` persistent flags, `version`, `update` and a once-a-day update notice on stderr.
+`cli.New` adds `--json` and `--yaml` persistent flags, `version`, `update`, root `--version`/`-v`/`-V` (bare version, exit 0) and a once-a-day update notice on stderr.
+`cli.Execute` writes errors to stdout in the selected format (TOON, `--json` or `--yaml`), like normal output, so the agent reads them.
+Exit codes are unchanged (0 success, 1 runtime, 2 usage), and stderr carries only the update notice.
 The release repository defaults to the binary's `github.com/owner/name` module path, override it with `cli.Repo`.
 `MY_AXI_NO_UPDATE_CHECK=1` turns the notice off, and `cli.EnvPrefix` changes the prefix.
 `update` expects GoReleaser-style archives (`name_version_os_arch.tar.gz`, `.zip` on Windows) for Linux, macOS and Windows on amd64 or arm64, plus `checksums.txt`.
