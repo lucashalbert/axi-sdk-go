@@ -1,21 +1,26 @@
 // Package cli composes an AXI command line tool from Modules.
 //
 // New returns a Cobra root command with the shared pieces already wired:
-// persistent --json and --yaml flags, a version command, a checksum-verified
-// update command, and a once-a-day update notice on stderr.
-// Execute runs it and maps any error to a structured message and exit code.
+// persistent --json and --yaml flags, a version command, root --version and
+// -V flags, root -v when no module already claimed that shorthand, a
+// checksum-verified update command, and a once-a-day update notice on stderr.
+// Execute runs it, writes any error to stdout as a structured message in the
+// selected format, and returns the exit code.
 package cli
 
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime/debug"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/lucashalbert/axi-sdk-go/axierr"
 	"github.com/lucashalbert/axi-sdk-go/output"
@@ -96,6 +101,8 @@ func New(name string, info update.Info, mods ...Module) *cobra.Command {
 		return axierr.Usage(c.CommandPath(), err.Error(), "run '"+c.CommandPath()+" --help' for usage")
 	})
 	root.PersistentPostRun = s.notice
+	// Help is what a non-runnable root printed already.
+	root.Run = func(c *cobra.Command, _ []string) { _ = c.Help() }
 
 	root.AddCommand(s.versionCmd(), s.updateCmd())
 	for _, m := range mods {
@@ -103,6 +110,11 @@ func New(name string, info update.Info, mods ...Module) *cobra.Command {
 			m.Register(root)
 		}
 	}
+	if root.Annotations == nil {
+		root.Annotations = map[string]string{}
+	}
+	root.Annotations[versionAnnotation] = orDefault(s.info.Version, "dev")
+	s.addVersionFlags(root)
 	return root
 }
 
@@ -118,10 +130,16 @@ func Format(cmd *cobra.Command) (output.Format, error) {
 	return f, nil
 }
 
-// Execute runs root, prints any error to stderr as a structured message in
-// the selected format, and returns the process exit code (0, 1 or 2).
+// Execute runs root, prints any error to stdout as a structured message in
+// the selected format (the same stream and format as normal output, so the
+// agent reads it), and returns the process exit code (0, 1 or 2).
+// Nothing is written to stderr for errors.
 // Cobra's own unknown-command and flag errors are usage errors.
 func Execute(root *cobra.Command) int {
+	if shouldPrintBareVersion(root, commandArgs(root)) {
+		_, _ = fmt.Fprintln(root.OutOrStdout(), root.Annotations[versionAnnotation])
+		return axierr.CodeOK
+	}
 	err := root.Execute()
 	if err == nil {
 		return axierr.CodeOK
@@ -141,8 +159,100 @@ func Execute(root *cobra.Command) int {
 	if perr != nil {
 		f = output.TOON
 	}
-	ae.Render(root.ErrOrStderr(), f)
+	ae.Render(root.OutOrStdout(), f)
 	return axierr.ExitCode(ae)
+}
+
+func shouldPrintBareVersion(root *cobra.Command, args []string) bool {
+	if len(args) == 0 || root.Annotations[versionAnnotation] == "" {
+		return false
+	}
+	seen := false
+	for i := 0; i < len(args); i++ {
+		if isVersionArg(root, args[i]) {
+			if seen {
+				return false
+			}
+			seen = true
+			continue
+		}
+		if args[i] == "--" {
+			return false
+		}
+		if strings.HasPrefix(args[i], "--") {
+			name, _, hasValue := strings.Cut(strings.TrimPrefix(args[i], "--"), "=")
+			f := rootFlag(root, name)
+			if f == nil {
+				return false
+			}
+			if !hasValue && f.NoOptDefVal == "" {
+				i++
+				if i >= len(args) {
+					return false
+				}
+			}
+			continue
+		}
+		if strings.HasPrefix(args[i], "-") {
+			name, _, hasValue := strings.Cut(strings.TrimPrefix(args[i], "-"), "=")
+			if len(name) != 1 {
+				return false
+			}
+			f := rootShorthand(root, name)
+			if f == nil {
+				return false
+			}
+			if !hasValue && f.NoOptDefVal == "" {
+				i++
+				if i >= len(args) {
+					return false
+				}
+			}
+			continue
+		}
+		return false
+	}
+	return seen
+}
+
+func isVersionArg(root *cobra.Command, arg string) bool {
+	switch arg {
+	case "--version", "-V":
+		return true
+	case "-v":
+		return root.Annotations[versionShortAnnotation] == "true"
+	default:
+		return false
+	}
+}
+
+func rootFlag(root *cobra.Command, name string) *pflag.Flag {
+	if f := root.Flags().Lookup(name); f != nil {
+		return f
+	}
+	return root.PersistentFlags().Lookup(name)
+}
+
+func rootShorthand(root *cobra.Command, name string) *pflag.Flag {
+	if f := root.Flags().ShorthandLookup(name); f != nil {
+		return f
+	}
+	return root.PersistentFlags().ShorthandLookup(name)
+}
+
+func commandArgs(root *cobra.Command) []string {
+	v := reflect.ValueOf(root).Elem().FieldByName("args")
+	if v.IsValid() && !v.IsNil() {
+		args := make([]string, v.Len())
+		for i := range args {
+			args[i] = v.Index(i).String()
+		}
+		return args
+	}
+	if filepath.Base(os.Args[0]) != "cobra.test" {
+		return os.Args[1:]
+	}
+	return nil
 }
 
 func defaultEnvPrefix(name string) string {

@@ -68,7 +68,7 @@ func TestEchoEndToEnd(t *testing.T) {
 
 	t.Run("read command on missing key is a runtime error", func(t *testing.T) {
 		r := runEcho(t, bin, file, "get", "greeting")
-		if r.code != 1 || r.out != "" || !strings.Contains(r.errOut, "not found") {
+		if r.code != 1 || r.errOut != "" || !strings.Contains(r.out, "not found") {
 			t.Fatalf("%+v", r)
 		}
 	})
@@ -125,7 +125,7 @@ func TestEchoEndToEnd(t *testing.T) {
 
 	t.Run("delete without a token is a usage error naming the token", func(t *testing.T) {
 		r := runEcho(t, bin, file, "delete", "greeting")
-		if r.code != 2 || r.out != "" || !strings.Contains(r.errOut, "--confirm entry/greeting") {
+		if r.code != 2 || r.errOut != "" || !strings.Contains(r.out, "--confirm entry/greeting") {
 			t.Fatalf("%+v", r)
 		}
 		if readState(t, file)["greeting"] != "hello" {
@@ -135,7 +135,7 @@ func TestEchoEndToEnd(t *testing.T) {
 
 	t.Run("delete with a mismatched token is a usage error", func(t *testing.T) {
 		r := runEcho(t, bin, file, "delete", "greeting", "--confirm", "entry/other")
-		if r.code != 2 || !strings.Contains(r.errOut, "does not match") || !strings.Contains(r.errOut, "--confirm entry/greeting") {
+		if r.code != 2 || !strings.Contains(r.out, "does not match") || !strings.Contains(r.out, "--confirm entry/greeting") {
 			t.Fatalf("%+v", r)
 		}
 	})
@@ -172,8 +172,12 @@ func TestEchoEndToEnd(t *testing.T) {
 		if r.code != 0 || !strings.Contains(r.out, `"version":"dev"`) {
 			t.Fatalf("%+v", r)
 		}
+		r = runEcho(t, bin, file, "--version")
+		if r.code != 0 || r.out != "dev\n" || r.errOut != "" {
+			t.Fatalf("--version: %+v", r)
+		}
 		r = runEcho(t, bin, file, "set", "k", "v", "--json", "--yaml")
-		if r.code != 2 {
+		if r.code != 2 || r.errOut != "" || !strings.Contains(r.out, "error:") {
 			t.Fatalf("conflicting formats: %+v", r)
 		}
 	})
