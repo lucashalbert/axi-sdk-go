@@ -29,24 +29,28 @@ var errVersionPrinted = errors.New("version printed")
 
 // addVersionFlags gives the root --version and -V, plus -v when no module has
 // already claimed that root shorthand. They are local to the root, so
-// subcommands keep their own -v/-V, and a flag a module already defined on the
-// root is left alone.
+// subcommands keep their own -v/-V, and only a module-owned root -v is left
+// alone.
 func (s *settings) addVersionFlags(root *cobra.Command) {
 	f := root.Flags()
+	pf := root.PersistentFlags()
+	if f.Lookup("version") != nil || pf.Lookup("version") != nil {
+		panic("cli: root flag --version is reserved")
+	}
+	if f.Lookup("V") != nil || pf.Lookup("V") != nil ||
+		f.ShorthandLookup("V") != nil || pf.ShorthandLookup("V") != nil {
+		panic("cli: root flag -V is reserved")
+	}
 	short := func(c string) string {
-		if f.ShorthandLookup(c) != nil || root.PersistentFlags().ShorthandLookup(c) != nil {
+		if f.ShorthandLookup(c) != nil || pf.ShorthandLookup(c) != nil {
 			return ""
 		}
 		return c
 	}
-	if f.Lookup("version") == nil && root.PersistentFlags().Lookup("version") == nil {
-		f.BoolP("version", short("v"), false, "print the version and exit")
-	}
+	f.BoolP("version", short("v"), false, "print the version and exit")
 	// ponytail: pflag shorthands need a flag name, so -V is a hidden "--V" too.
-	if f.Lookup("V") == nil && short("V") != "" {
-		f.BoolP("V", "V", false, "print the version and exit")
-		_ = f.MarkHidden("V")
-	}
+	f.BoolP("V", "V", false, "print the version and exit")
+	_ = f.MarkHidden("V")
 }
 
 // versionFastPath prints the bare version when a root version flag is set.

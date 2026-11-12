@@ -226,6 +226,59 @@ func TestVersionFlagsDoNotCollide(t *testing.T) {
 	}
 }
 
+func TestVersionFlagsRejectReservedRootFlags(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		mod  Module
+		msg  string
+	}{
+		{
+			name: "local version",
+			mod: moduleFunc(func(r *cobra.Command) {
+				r.Flags().Bool("version", false, "")
+			}),
+			msg: "cli: root flag --version is reserved",
+		},
+		{
+			name: "persistent version",
+			mod: moduleFunc(func(r *cobra.Command) {
+				r.PersistentFlags().Bool("version", false, "")
+			}),
+			msg: "cli: root flag --version is reserved",
+		},
+		{
+			name: "local V shorthand",
+			mod: moduleFunc(func(r *cobra.Command) {
+				r.Flags().BoolP("verbose", "V", false, "")
+			}),
+			msg: "cli: root flag -V is reserved",
+		},
+		{
+			name: "persistent V shorthand",
+			mod: moduleFunc(func(r *cobra.Command) {
+				r.PersistentFlags().BoolP("verbose", "V", false, "")
+			}),
+			msg: "cli: root flag -V is reserved",
+		},
+		{
+			name: "local hidden V",
+			mod: moduleFunc(func(r *cobra.Command) {
+				r.Flags().Bool("V", false, "")
+			}),
+			msg: "cli: root flag -V is reserved",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != tc.msg {
+					t.Fatalf("panic = %v, want %q", r, tc.msg)
+				}
+			}()
+			_ = New("tool-x", info, Repo("o/x"), tc.mod)
+		})
+	}
+}
+
 func TestModuleIsRegisteredAndOptionsAreNot(t *testing.T) {
 	m := &echoModule{}
 	root := New("tool-x", info, Repo("o/x"), m)
