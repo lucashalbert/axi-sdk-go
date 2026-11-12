@@ -26,10 +26,10 @@ func orDefault(v, def string) string {
 	return v
 }
 
-// addVersionFlags gives the root --version and -V, plus -v when no module has
-// already claimed that root shorthand. They are local to the root, so
-// subcommands keep their own -v/-V, and only a module-owned root -v is left
-// alone.
+// addVersionFlags advertises root --version and -V when unclaimed, plus -v
+// when no module has already claimed that root shorthand. Execute handles
+// --version and -V before Cobra parses flags, so module-owned root flags cannot
+// shadow the required version fast path.
 func (s *settings) addVersionFlags(root *cobra.Command) {
 	f := root.Flags()
 	pf := root.PersistentFlags()

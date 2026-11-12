@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/lucashalbert/axi-sdk-go/axierr"
 	"github.com/lucashalbert/axi-sdk-go/output"
@@ -163,10 +164,59 @@ func Execute(root *cobra.Command) int {
 }
 
 func shouldPrintBareVersion(root *cobra.Command, args []string) bool {
-	if len(args) != 1 || root.Annotations[versionAnnotation] == "" {
+	if len(args) == 0 || root.Annotations[versionAnnotation] == "" {
 		return false
 	}
-	switch args[0] {
+	seen := false
+	for i := 0; i < len(args); i++ {
+		if isVersionArg(root, args[i]) {
+			if seen {
+				return false
+			}
+			seen = true
+			continue
+		}
+		if args[i] == "--" {
+			return false
+		}
+		if strings.HasPrefix(args[i], "--") {
+			name, _, hasValue := strings.Cut(strings.TrimPrefix(args[i], "--"), "=")
+			f := rootFlag(root, name)
+			if f == nil {
+				return false
+			}
+			if !hasValue && f.NoOptDefVal == "" {
+				i++
+				if i >= len(args) {
+					return false
+				}
+			}
+			continue
+		}
+		if strings.HasPrefix(args[i], "-") {
+			name, _, hasValue := strings.Cut(strings.TrimPrefix(args[i], "-"), "=")
+			if len(name) != 1 {
+				return false
+			}
+			f := rootShorthand(root, name)
+			if f == nil {
+				return false
+			}
+			if !hasValue && f.NoOptDefVal == "" {
+				i++
+				if i >= len(args) {
+					return false
+				}
+			}
+			continue
+		}
+		return false
+	}
+	return seen
+}
+
+func isVersionArg(root *cobra.Command, arg string) bool {
+	switch arg {
 	case "--version", "-V":
 		return true
 	case "-v":
@@ -174,6 +224,20 @@ func shouldPrintBareVersion(root *cobra.Command, args []string) bool {
 	default:
 		return false
 	}
+}
+
+func rootFlag(root *cobra.Command, name string) *pflag.Flag {
+	if f := root.Flags().Lookup(name); f != nil {
+		return f
+	}
+	return root.PersistentFlags().Lookup(name)
+}
+
+func rootShorthand(root *cobra.Command, name string) *pflag.Flag {
+	if f := root.Flags().ShorthandLookup(name); f != nil {
+		return f
+	}
+	return root.PersistentFlags().ShorthandLookup(name)
 }
 
 func commandArgs(root *cobra.Command) []string {
