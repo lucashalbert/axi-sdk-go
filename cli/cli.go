@@ -1,9 +1,9 @@
 // Package cli composes an AXI command line tool from Modules.
 //
 // New returns a Cobra root command with the shared pieces already wired:
-// persistent --json and --yaml flags, a version command, root --version, -v
-// and -V flags, a checksum-verified update command, and a once-a-day update
-// notice on stderr.
+// persistent --json and --yaml flags, a version command, root --version and
+// -V flags, root -v when no module already claimed that shorthand, a
+// checksum-verified update command, and a once-a-day update notice on stderr.
 // Execute runs it, writes any error to stdout as a structured message in the
 // selected format, and returns the exit code.
 package cli

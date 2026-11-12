@@ -27,9 +27,10 @@ func orDefault(v, def string) string {
 // errVersionPrinted stops the root command after a version flag was answered.
 var errVersionPrinted = errors.New("version printed")
 
-// addVersionFlags gives the root --version, -v and -V. They are local to the
-// root, so subcommands keep their own -v/-V, and a flag a module already
-// defined on the root is left alone.
+// addVersionFlags gives the root --version and -V, plus -v when no module has
+// already claimed that root shorthand. They are local to the root, so
+// subcommands keep their own -v/-V, and a flag a module already defined on the
+// root is left alone.
 func (s *settings) addVersionFlags(root *cobra.Command) {
 	f := root.Flags()
 	short := func(c string) string {

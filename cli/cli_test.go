@@ -198,15 +198,31 @@ func TestVersionFlagsDoNotCollide(t *testing.T) {
 	if o, _, code := run(t, &fakes{}, "version"); code != 0 || !strings.HasPrefix(o, "version: 0.1.0") {
 		t.Errorf("version cmd: %d %q", code, o)
 	}
-	// A root that already owns -v keeps it and still gets --version and -V.
-	root = New("tool-x", info, Repo("o/x"), moduleFunc(func(r *cobra.Command) {
-		r.Flags().BoolP("verbose", "v", false, "")
-	}))
+	rootWithV := func() *cobra.Command {
+		return New("tool-x", info, Repo("o/x"), moduleFunc(func(r *cobra.Command) {
+			r.Flags().BoolP("verbose", "v", false, "")
+			r.RunE = func(cmd *cobra.Command, _ []string) error {
+				verbose, _ := cmd.Flags().GetBool("verbose")
+				_, _ = cmd.OutOrStdout().Write([]byte(map[bool]string{true: "verbose\n", false: "quiet\n"}[verbose]))
+				return nil
+			}
+		}))
+	}
+	for _, flag := range []string{"--version", "-V"} {
+		root = rootWithV()
+		out.Reset()
+		root.SetOut(&out)
+		root.SetArgs([]string{flag})
+		if Execute(root) != 0 || out.String() != "0.1.0\n" {
+			t.Errorf("%s out = %q", flag, out.String())
+		}
+	}
+	root = rootWithV()
 	out.Reset()
 	root.SetOut(&out)
-	root.SetArgs([]string{"-V"})
-	if Execute(root) != 0 || out.String() != "0.1.0\n" {
-		t.Errorf("-V out = %q", out.String())
+	root.SetArgs([]string{"-v"})
+	if Execute(root) != 0 || out.String() != "verbose\n" {
+		t.Errorf("-v out = %q", out.String())
 	}
 }
 

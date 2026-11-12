@@ -24,7 +24,7 @@ func main() {
 }
 ```
 
-`cli.New` adds `--json` and `--yaml` persistent flags, `version`, `update`, root `--version`/`-v`/`-V` (bare version, exit 0) and a once-a-day update notice on stderr.
+`cli.New` adds `--json` and `--yaml` persistent flags, `version`, `update`, root `--version` and `-V` (bare version, exit 0), root `-v` with the same behavior unless a module already owns root `-v`, and a once-a-day update notice on stderr.
 `cli.Execute` writes errors to stdout in the selected format (TOON, `--json` or `--yaml`), like normal output, so the agent reads them.
 Exit codes are unchanged (0 success, 1 runtime, 2 usage), and stderr carries only the update notice.
 The release repository defaults to the binary's `github.com/owner/name` module path, override it with `cli.Repo`.
