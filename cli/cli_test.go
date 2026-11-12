@@ -137,6 +137,43 @@ func TestParseFailureHonorsFormatFlags(t *testing.T) {
 	}
 }
 
+func TestParseFailureIgnoresFormatFlagValues(t *testing.T) {
+	runSub := func(args ...string) (stdout string, code int) {
+		t.Helper()
+		root := New("tool-x", info, (&fakes{}).option(), Repo("o/tool-x"), moduleFunc(func(r *cobra.Command) {
+			c := &cobra.Command{Use: "sub"}
+			c.Flags().String("name", "", "")
+			c.Flags().StringP("short", "n", "", "")
+			r.AddCommand(c)
+		}))
+		var out, errb bytes.Buffer
+		root.SetOut(&out)
+		root.SetErr(&errb)
+		root.SetArgs(args)
+		code = Execute(root)
+		if errb.Len() != 0 {
+			t.Fatalf("%v stderr = %q", args, errb.String())
+		}
+		return out.String(), code
+	}
+
+	for _, args := range [][]string{
+		{"sub", "--name", "--json", "--bogus"},
+		{"sub", "-n", "--yaml", "--bogus"},
+	} {
+		out, code := runSub(args...)
+		if code != 2 || !strings.HasPrefix(out, "error:\n") {
+			t.Errorf("%v: code=%d out=%q", args, code, out)
+		}
+	}
+
+	out, code := runSub("sub", "--name", "--", "--bogus", "--json")
+	var j map[string]map[string]any
+	if err := json.Unmarshal([]byte(out), &j); err != nil || code != 2 || j["error"]["exit"] != float64(2) {
+		t.Errorf("terminator value: code=%d out=%q err=%v", code, out, err)
+	}
+}
+
 func TestRuntimeErrorExit1AsJSON(t *testing.T) {
 	out, errOut, code := run(t, &fakes{}, "boom", "--json")
 	if code != 1 || errOut != "" || out != `{"error":{"op":"tool-x","message":"kaboom","exit":1}}`+"\n" {

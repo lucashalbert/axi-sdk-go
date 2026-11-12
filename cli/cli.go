@@ -159,7 +159,7 @@ func Execute(root *cobra.Command) int {
 	f, perr := Format(root)
 	if ae.Code == axierr.CodeUsage {
 		// Parsing may have stopped early, so read the flags from the raw args.
-		f, perr = formatFromArgs(commandArgs(root))
+		f, perr = formatFromArgs(root, commandArgs(root))
 	}
 	if perr != nil {
 		f = output.TOON
@@ -169,30 +169,85 @@ func Execute(root *cobra.Command) int {
 }
 
 // formatFromArgs applies Format's rules to raw args, stopping at "--".
-// ponytail: a flag value spelled "--json" (e.g. "--name --json") is still taken as the flag.
-func formatFromArgs(args []string) (output.Format, error) {
+func formatFromArgs(root *cobra.Command, args []string) (output.Format, error) {
 	var j, y bool
-	for _, a := range args {
+	cmd := root
+	for i := 0; i < len(args); i++ {
+		a := args[i]
 		if a == "--" {
 			break
 		}
-		name, val, hasVal := strings.Cut(a, "=")
-		v := true
-		if hasVal {
-			b, err := strconv.ParseBool(val)
-			if err != nil {
+
+		if strings.HasPrefix(a, "--") {
+			name, val, hasVal := strings.Cut(strings.TrimPrefix(a, "--"), "=")
+			if f := cmd.Flag(name); f != nil && !hasVal && f.NoOptDefVal == "" {
+				i++
 				continue
 			}
-			v = b
+			v := true
+			if hasVal {
+				b, err := strconv.ParseBool(val)
+				if err != nil {
+					continue
+				}
+				v = b
+			}
+			switch name {
+			case "json":
+				j = v
+			case "yaml":
+				y = v
+			}
+			continue
 		}
-		switch name {
-		case "--json":
-			j = v
-		case "--yaml":
-			y = v
+
+		if strings.HasPrefix(a, "-") && a != "-" {
+			if shortFlagConsumesValue(cmd, a) {
+				i++
+			}
+			continue
+		}
+
+		if child := findSubcommand(cmd, a); child != nil {
+			cmd = child
 		}
 	}
 	return output.ParseFormat(j, y)
+}
+
+func shortFlagConsumesValue(cmd *cobra.Command, arg string) bool {
+	name, _, hasVal := strings.Cut(strings.TrimPrefix(arg, "-"), "=")
+	for i := 0; i < len(name); i++ {
+		f := commandShorthand(cmd, name[i:i+1])
+		if f == nil {
+			return false
+		}
+		if f.NoOptDefVal == "" {
+			return !hasVal && i == len(name)-1
+		}
+	}
+	return false
+}
+
+func commandShorthand(cmd *cobra.Command, name string) *pflag.Flag {
+	if f := cmd.Flags().ShorthandLookup(name); f != nil {
+		return f
+	}
+	for c := cmd; c != nil; c = c.Parent() {
+		if f := c.PersistentFlags().ShorthandLookup(name); f != nil {
+			return f
+		}
+	}
+	return nil
+}
+
+func findSubcommand(cmd *cobra.Command, name string) *cobra.Command {
+	for _, child := range cmd.Commands() {
+		if child.Name() == name || child.HasAlias(name) {
+			return child
+		}
+	}
+	return nil
 }
 
 func shouldPrintBareVersion(root *cobra.Command, args []string) bool {
