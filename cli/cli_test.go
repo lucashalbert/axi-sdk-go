@@ -116,6 +116,27 @@ func TestUsageErrorsExit2(t *testing.T) {
 	}
 }
 
+func TestParseFailureHonorsFormatFlags(t *testing.T) {
+	for _, args := range [][]string{{"--bogus", "--json"}, {"version", "--bogus", "--json"}, {"nosuch", "--json=true"}} {
+		out, _, code := run(t, &fakes{}, args...)
+		var j map[string]map[string]any
+		if err := json.Unmarshal([]byte(out), &j); err != nil || code != 2 || j["error"]["exit"] != float64(2) {
+			t.Errorf("%v json: code=%d out=%q err=%v", args, code, out, err)
+		}
+	}
+	out, _, code := run(t, &fakes{}, "version", "--bogus", "--yaml")
+	var y map[string]map[string]any
+	if err := yaml.Unmarshal([]byte(out), &y); err != nil || code != 2 || y["error"]["exit"] != 2 {
+		t.Errorf("yaml: code=%d out=%q err=%v", code, out, err)
+	}
+	for _, args := range [][]string{{"version", "--bogus"}, {"version", "--bogus", "--json", "--yaml"}, {"version", "--bogus", "--json=false"}, {"version", "--bogus", "--", "--json"}} {
+		out, _, code = run(t, &fakes{}, args...)
+		if code != 2 || !strings.HasPrefix(out, "error:\n") {
+			t.Errorf("%v toon: code=%d out=%q", args, code, out)
+		}
+	}
+}
+
 func TestRuntimeErrorExit1AsJSON(t *testing.T) {
 	out, errOut, code := run(t, &fakes{}, "boom", "--json")
 	if code != 1 || errOut != "" || out != `{"error":{"op":"tool-x","message":"kaboom","exit":1}}`+"\n" {

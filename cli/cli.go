@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
 
@@ -156,11 +157,42 @@ func Execute(root *cobra.Command) int {
 		}
 	}
 	f, perr := Format(root)
+	if ae.Code == axierr.CodeUsage {
+		// Parsing may have stopped early, so read the flags from the raw args.
+		f, perr = formatFromArgs(commandArgs(root))
+	}
 	if perr != nil {
 		f = output.TOON
 	}
 	ae.Render(root.OutOrStdout(), f)
 	return axierr.ExitCode(ae)
+}
+
+// formatFromArgs applies Format's rules to raw args, stopping at "--".
+// ponytail: a flag value spelled "--json" (e.g. "--name --json") is still taken as the flag.
+func formatFromArgs(args []string) (output.Format, error) {
+	var j, y bool
+	for _, a := range args {
+		if a == "--" {
+			break
+		}
+		name, val, hasVal := strings.Cut(a, "=")
+		v := true
+		if hasVal {
+			b, err := strconv.ParseBool(val)
+			if err != nil {
+				continue
+			}
+			v = b
+		}
+		switch name {
+		case "--json":
+			j = v
+		case "--yaml":
+			y = v
+		}
+	}
+	return output.ParseFormat(j, y)
 }
 
 func shouldPrintBareVersion(root *cobra.Command, args []string) bool {
